@@ -3,17 +3,16 @@
 The Virtual Air Writing program allows you to draw in the air using your hand gestures captured by your laptop's camera.
 
 ## Features
-- **No-Touch Control**: Use hand motions only. No keyboard or mouse needed.
-- **Pinch to Draw**: Bring your thumb and index finger together to start drawing.
-- **Hover to Navigate**: Extend just your index finger to move the cursor without drawing.
-- **Pinch to Click**: Hover over a button (Save, Clear, Colors) and pinch to activate it.
-- **Palm Eraser**: Open your entire palm to use a large eraser.
-- **Whiteboard Mode**: Start with a clean white board by default. Toggle back to the camera view using the "MODE" button.
-- **On-Screen Buttons**:
-    - **Black, Blue, Green, Red, Yellow**: Choose your ink color.
-    - **CLEAR**: Wipe the entire canvas.
-    - **SAVE**: Save your work as a `.png` image.
-    - **MODE**: Switch between Whiteboard and Camera view.
+- **Professional Interface**: 8 Colors and 4 Brush Sizes selectable from the top menu.
+- **Drawing Mode (Index Finger Only)**: Raise just your index finger to write on the board. UI interaction is locked during this mode for safety.
+- **Selection Mode (Index + Middle Fingers)**: Raise both fingers to use your index finger as a pointer. Hover over menu items to change colors, sizes, or save your work.
+- **Visual Skeleton**: A real-time hand skeleton overlay shows you exactly how the AI is tracking your hand.
+- **On-Screen Menu**:
+    - **8 Palette Colors**: Black, Blue, Green, Red, Yellow, Magenta, Orange, Eraser.
+    - **4 Brush Sizes**: Select XS, S, M, or L for precision or bold strokes.
+    - **CLR**: Instantly wipe the entire board.
+    - **SAVE**: Export your board as a high-quality `.png` image.
+    - **MODE**: Toggle between solid Whiteboard and live Camera views.
 - **Keyboard Shortcuts**:
     - Press `c` to clear the canvas.
     - Press `m` to toggle between Whiteboard and Camera mode.

@@ -4,6 +4,7 @@ import mediapipe as mp
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 import time
+import math
 
 # Initialize MediaPipe Hand Landmarker
 base_options = python.BaseOptions(model_asset_path='hand_landmarker.task')
@@ -16,178 +17,131 @@ options = vision.HandLandmarkerOptions(
 )
 detector = vision.HandLandmarker.create_from_options(options)
 
-# Canvas for drawing
+# Project Settings (LinkedIn Style)
+palette = [
+    (0, 0, 1),       # Black
+    (255, 0, 0),     # Blue
+    (0, 255, 0),     # Green
+    (0, 0, 255),     # Red
+    (0, 255, 255),   # Yellow
+    (255, 0, 255),   # Magenta
+    (255, 128, 0),   # Orange
+    (255, 255, 255)  # Eraser (White)
+]
+p_names = ["BLK", "BLU", "GRN", "RED", "YEL", "MAG", "ORN", "ERS"]
+brush_sizes = [4, 10, 20, 40]
+b_names = ["XS", "S", "M", "L"]
+
+# Current State
+draw_color = palette[0]
+brush_thickness = brush_sizes[1]
+is_whiteboard = True
 canvas = None
 prev_x, prev_y = 0, 0
-draw_color = (0, 0, 0) # Black (Initial for whiteboard)
-brush_thickness = 10
-eraser_thickness = 50
+smooth_factor = 5
+points_history = []
 
-# Mode Settings
-is_whiteboard = True
+def draw_skeleton(img, landmarks):
+    connections = [
+        (0,1), (1,2), (2,3), (3,4),
+        (0,5), (5,6), (6,7), (7,8),
+        (5,9), (9,10), (10,11), (11,12),
+        (9,13), (13,14), (14,15), (15,16),
+        (13,17), (17,18), (18,19), (19,20), (0,17)
+    ]
+    h, w, _ = img.shape
+    for start, end in connections:
+        p1 = (int(landmarks[start].x * w), int(landmarks[start].y * h))
+        p2 = (int(landmarks[end].x * w), int(landmarks[end].y * h))
+        cv2.line(img, p1, p2, (180, 180, 180), 1)
+    for lm in landmarks:
+        cv2.circle(img, (int(lm.x * w), int(lm.y * h)), 3, (0, 255, 0), -1)
 
-# UI Settings
-colors = [
-    (0, 0, 1),     # Black (using 1 instead of 0 for mask detection)
-    (255, 0, 0),   # Blue
-    (0, 255, 0),   # Green
-    (0, 0, 255),   # Red
-    (0, 255, 255), # Yellow
-    (255, 255, 255)# Eraser
-]
-color_names = ["Black", "Blue", "Green", "Red", "Yellow", "Eraser"]
-
-# Camera Capture
 cap = cv2.VideoCapture(0)
-
-# Set common resolution
 cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
 
-print("Starting Virtual Air Writer... Press 'q' to quit.")
+print("Starting LinkedIn-Style Virtual Board... Press 'q' to quit.")
 
 while cap.isOpened():
     success, frame = cap.read()
-    if not success:
-        print("Camera access failed. Ensure no other app is using the camera.")
-        break
-
-    # Flip the image horizontally for a mirror effect
+    if not success: break
     frame = cv2.flip(frame, 1)
     h, w, c = frame.shape
-    
-    if canvas is None:
-        canvas = np.zeros((h, w, 3), np.uint8)
+    if canvas is None: canvas = np.zeros((h, w, 3), np.uint8)
 
-    # Determine Background
-    if is_whiteboard:
-        display_img = np.ones((h, w, 3), np.uint8) * 255
-    else:
-        display_img = frame.copy()
+    display_img = np.ones((h, w, 3), np.uint8) * 255 if is_whiteboard else frame.copy()
 
-    # Draw UI Header Buttons
-    # Adding buttons for Save and Undo as well
-    # Colors + Clear + Mode + Save
-    total_buttons = len(colors) + 3 
-    button_w = w // total_buttons
-    
-    for i, color in enumerate(colors):
-        # Draw color buttons
-        cv2.rectangle(display_img, (i * button_w, 0), ((i + 1) * button_w, 100), color, cv2.FILLED)
-        cv2.rectangle(display_img, (i * button_w, 0), ((i + 1) * button_w, 100), (200, 200, 200), 1)
-        
-        text = color_names[i]
-        font_scale = 0.5
-        text_color = (255, 255, 255) if sum(color) < 400 else (0, 0, 0)
-        text_size = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, 2)[0]
-        text_x = i * button_w + (button_w - text_size[0]) // 2
-        cv2.putText(display_img, text, (text_x, 60), cv2.FONT_HERSHEY_SIMPLEX, font_scale, text_color, 2)
+    # Draw UI Header
+    slots = len(palette) + 3
+    sw = w // slots
+    sh = 70
+    for i, color in enumerate(palette):
+        cv2.rectangle(display_img, (i * sw, 0), ((i + 1) * sw, sh), color, cv2.FILLED)
+        cv2.rectangle(display_img, (i * sw, 0), ((i + 1) * sw, sh), (200, 200, 200), 1)
+        tc = (0, 0, 0) if sum(color) > 400 else (255, 255, 255)
+        cv2.putText(display_img, p_names[i], (i * sw + 5, sh - 25), cv2.FONT_HERSHEY_SIMPLEX, 0.4, tc, 1)
 
-    # Clear Button
-    cv2.rectangle(display_img, (len(colors) * button_w, 0), ((len(colors)+1) * button_w, 100), (128, 128, 128), cv2.FILLED)
-    cv2.rectangle(display_img, (len(colors) * button_w, 0), ((len(colors)+1) * button_w, 100), (200, 200, 200), 1)
-    cv2.putText(display_img, "CLEAR", (len(colors) * button_w + 5, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+    cv2.rectangle(display_img, (len(palette) * sw, 0), ((len(palette)+1) * sw, sh), (100, 100, 100), cv2.FILLED)
+    cv2.putText(display_img, "CLR", (len(palette) * sw + 5, sh - 25), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
+    cv2.rectangle(display_img, ((len(palette)+1) * sw, 0), ((len(palette)+2) * sw, sh), (50, 150, 50), cv2.FILLED)
+    cv2.putText(display_img, "SAVE", ((len(palette)+1) * sw + 5, sh - 25), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
+    cv2.rectangle(display_img, ((len(palette)+2) * sw, 0), (w, sh), (80, 80, 80), cv2.FILLED)
+    cv2.putText(display_img, "MODE", ((len(palette)+2) * sw + 5, sh - 25), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
 
-    # Save Button
-    cv2.rectangle(display_img, ((len(colors)+1) * button_w, 0), ((len(colors)+2) * button_w, 100), (50, 150, 50), cv2.FILLED)
-    cv2.rectangle(display_img, ((len(colors)+1) * button_w, 0), ((len(colors)+2) * button_w, 100), (200, 200, 200), 1)
-    cv2.putText(display_img, "SAVE", ((len(colors)+1) * button_w + 10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+    # Brushes
+    bh = 30
+    bw = w // 10
+    for i, size in enumerate(brush_sizes):
+        c_bg = (200, 200, 200) if brush_thickness == size else (100, 100, 100)
+        cv2.rectangle(display_img, (i * bw, sh), ((i + 1) * bw, sh + bh), c_bg, cv2.FILLED)
+        cv2.rectangle(display_img, (i * bw, sh), ((i + 1) * bw, sh + bh), (0,0,0), 1)
+        cv2.putText(display_img, f"SIZE {b_names[i]}", (i * bw + 5, sh + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (0,0,0), 1)
 
-    # Mode Toggle Button
-    mode_bg = (80, 80, 80) if is_whiteboard else (150, 50, 50)
-    cv2.rectangle(display_img, ((len(colors)+2) * button_w, 0), (w, 100), mode_bg, cv2.FILLED)
-    cv2.rectangle(display_img, ((len(colors)+2) * button_w, 0), (w, 100), (200, 200, 200), 1)
-    toggle_text = "BOARD" if is_whiteboard else "CAM"
-    cv2.putText(display_img, toggle_text, ((len(colors)+2) * button_w + 5, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
-
-    # Convert to MediaPipe Image
     mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-    
-    # Detect
-    detection_result = detector.detect(mp_image)
+    res = detector.detect(mp_image)
+    curr_gesture = "IDLE"
 
-    if detection_result.hand_landmarks:
-        hand_lms = detection_result.hand_landmarks[0]
-        index_tip = hand_lms[8]
-        index_mcp = hand_lms[5]
-        middle_tip = hand_lms[12]
-        middle_mcp = hand_lms[9]
+    if res.hand_landmarks:
+        lms = res.hand_landmarks[0]
+        draw_skeleton(display_img, lms)
+        rx, ry = int(lms[8].x * w), int(lms[8].y * h)
+        points_history.append((rx, ry))
+        if len(points_history) > smooth_factor: points_history.pop(0)
+        cx, cy = int(sum(p[0] for p in points_history)/len(points_history)), int(sum(p[1] for p in points_history)/len(points_history))
+
+        idx_up = lms[8].y < lms[6].y
+        mid_up = lms[12].y < lms[10].y
         
-        ix, iy = int(index_tip.x * w), int(index_tip.y * h)
-        
-        # Skeleton ghost (optional feedback)
-        for lm in hand_lms:
-            cv2.circle(display_img, (int(lm.x * w), int(lm.y * h)), 3, (150, 150, 150), -1)
-
-        index_up = index_tip.y < index_mcp.y
-        middle_up = middle_tip.y < middle_mcp.y
-
-        if index_up and middle_up:
-            # SELECTION MODE
+        if idx_up and mid_up:
+            curr_gesture = "SELECTING"
+            cv2.circle(display_img, (cx, cy), 15, (0, 255, 255), 2)
             prev_x, prev_y = 0, 0
-            cv2.circle(display_img, (ix, iy), 15, draw_color, cv2.FILLED)
-            cv2.circle(display_img, (ix, iy), 18, (100, 100, 100), 2)
-            
-            # Button collisions
-            if iy < 100:
-                if ix < len(colors) * button_w:
-                    selected_idx = ix // button_w
-                    draw_color = colors[selected_idx]
-                    brush_thickness = eraser_thickness if color_names[selected_idx] == "Eraser" else 10
-                elif ix < (len(colors)+1) * button_w:
-                    canvas = np.zeros_like(frame)
-                    cv2.rectangle(display_img, (len(colors) * button_w, 0), ((len(colors)+1) * button_w, 100), (0, 255, 0), cv2.FILLED)
-                elif ix < (len(colors)+2) * button_w:
-                    # Save
-                    filename = f"whiteboard_{time.strftime('%H%M%S')}.png"
-                    cv2.imwrite(filename, display_img)
-                    cv2.putText(display_img, "SAVED", (w//2-50, h//2), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-                    time.sleep(0.3)
-                else:
-                    # Toggle Mode
-                    is_whiteboard = not is_whiteboard
-                    time.sleep(0.3) 
+            if cy < sh:
+                idx = cx // sw
+                if idx < len(palette): draw_color = palette[idx]
+                elif idx == len(palette): canvas = np.zeros_like(frame)
+                elif idx == len(palette) + 1:
+                    cv2.imwrite(f"board_{time.strftime('%H%M%S')}.png", display_img); time.sleep(0.3)
+                else: is_whiteboard = not is_whiteboard; time.sleep(0.3)
+            elif cy < sh + bh:
+                idx = cx // bw
+                if idx < len(brush_sizes): brush_thickness = brush_sizes[idx]
+        elif idx_up:
+            curr_gesture = "DRAWING"
+            cv2.circle(display_img, (cx, cy), brush_thickness//2, draw_color, cv2.FILLED)
+            if prev_x != 0: cv2.line(canvas, (prev_x, prev_y), (cx, cy), draw_color, brush_thickness)
+            prev_x, prev_y = cx, cy
+        else: prev_x, prev_y = 0, 0
 
-        elif index_up and not middle_up:
-            # DRAWING MODE
-            cv2.circle(display_img, (ix, iy), brush_thickness, draw_color, cv2.FILLED)
-            
-            if prev_x == 0 and prev_y == 0:
-                prev_x, prev_y = ix, iy
-            
-            cv2.line(canvas, (prev_x, prev_y), (ix, iy), draw_color, brush_thickness)
-            prev_x, prev_y = ix, iy
-        else:
-            prev_x, prev_y = 0, 0
-
-    # Combine Canvas with Background
-    # Using a more robust masking technique
-    canvas_gray = cv2.cvtColor(canvas, cv2.COLOR_BGR2GRAY)
-    _, mask = cv2.threshold(canvas_gray, 0, 255, cv2.THRESH_BINARY) # Changed threshold to 0
-    inv_mask = cv2.bitwise_not(mask)
-    
+    cv2.putText(display_img, f"Gesture: {curr_gesture}", (10, h - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (50, 50, 50), 2)
+    mask = cv2.threshold(cv2.cvtColor(canvas, cv2.COLOR_BGR2GRAY), 0, 255, cv2.THRESH_BINARY)[1]
     if is_whiteboard:
-        bg_part = cv2.bitwise_and(display_img, display_img, mask=inv_mask)
-        # Note: Canvas background is naturally black, so we just add it
-        canvas_part = cv2.bitwise_and(canvas, canvas, mask=mask)
-        display_img = cv2.add(bg_part, canvas_part)
-        
-        # Add a mini camera preview so the user knows where they are
-        mini_preview = cv2.resize(frame, (160, 90))
-        display_img[h-100:h-10, 10:170] = mini_preview
-        cv2.rectangle(display_img, (10, h-100), (170, h-10), (0, 255, 0), 2)
-    else:
-        display_img = cv2.addWeighted(display_img, 1, canvas, 1, 0)
+        display_img = cv2.add(cv2.bitwise_and(display_img, display_img, mask=cv2.bitwise_not(mask)), cv2.bitwise_and(canvas, canvas, mask=mask))
+    else: display_img = cv2.addWeighted(display_img, 1, canvas, 1, 0)
 
-    cv2.imshow("Virtual Air Writer", display_img)
-
-    key = cv2.waitKey(1) & 0xFF
-    if key == ord('q'):
-        break
-    elif key == ord('c'):
-        canvas = np.zeros_like(frame)
-    elif key == ord('m'):
-        is_whiteboard = not is_whiteboard
+    cv2.imshow("LinkedIn-Style Virtual Board", display_img)
+    if cv2.waitKey(1) & 0xFF == ord('q'): break
 
 cap.release()
 cv2.destroyAllWindows()
